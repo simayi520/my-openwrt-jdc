@@ -27,7 +27,7 @@ jobs:
 
     steps:
     - name: 准备环境
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: 安装编译依赖
       env:
@@ -58,18 +58,15 @@ jobs:
     - name: 写入 Seed 配置 (针对 RE-SS-01)
       run: |
         cd openwrt
-        # 强制指定目标平台和机型
         echo "CONFIG_TARGET_ipq60xx=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_jdcloud_re-ss-01=y" >> .config
         
-        # 预集成你需要的核心插件 (TikTok 优化相关)
         echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
         echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
         
-        # 让 OpenWrt 自动补全依赖
         make defconfig
 
     - name: 下载软件包 (dl)
@@ -98,7 +95,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 上传固件到 Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_firmware_RE-SS-01
