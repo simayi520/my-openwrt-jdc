@@ -1,24 +1,11 @@
-name: Build OpenWrt for JDCloud RE-SS-01
+name: Build OpenWrt for JDCloud RE-SS-01 (Final Fix)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
-    inputs:
-      ssh:
-        description: '是否在编译出错时开启 SSH 远程调试'
-        required: false
-        default: 'false'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
-  FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: .config
-  DIY_P1_SH: diy-part1.sh
-  DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -29,7 +16,7 @@ jobs:
     - name: 准备环境
       uses: actions/checkout@v4
 
-    - name: 安装编译依赖
+    - name: 安装依赖与清理空间
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -39,15 +26,11 @@ jobs:
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
 
     - name: 克隆源码
-      working-directory: /workdir
       run: |
-        df -hT $PWD
+        # 直接在工作目录克隆，避免路径混乱
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: 更新 & 安装 Feeds
       run: |
@@ -55,13 +38,14 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 写入 Seed 配置 (针对 RE-SS-01)
+    - name: 写入配置 (针对 RE-SS-01)
       run: |
         cd openwrt
         echo "CONFIG_TARGET_ipq60xx=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_jdcloud_re-ss-01=y" >> .config
         
+        # 集成 TikTok 核心优化插件
         echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
@@ -69,34 +53,26 @@ jobs:
         
         make defconfig
 
-    - name: 下载软件包 (dl)
-      id: package
+    - name: 下载软件包
       run: |
         cd openwrt
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: 编译固件
-      id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
+        # 多线程编译，失败则转单线程输出详细日志
+        make -j$(nproc) || make -j1 V=s
 
-    - name: 整理编译出的文件
-      id: organize
-      if: steps.compile.outputs.status == 'success'
+    - name: 自动化搜寻固件 (核心修复步)
       run: |
-        cd openwrt/bin/targets/ipq60xx/generic
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+        mkdir -p ./artifact/
+        # 搜索所有生成的 bin 或 img 固件并移动到 artifact 目录
+        find openwrt/bin/targets/ -type f -name "*re-ss-01*" -o -name "*sysupgrade.bin*" | xargs -I {} cp {} ./artifact/
+        echo "FIRMWARE=$PWD/artifact" >> $GITHUB_ENV
 
     - name: 上传固件到 Artifacts
       uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware_RE-SS-01
+        name: JDCloud_RE-SS-01_Firmware
         path: ${{ env.FIRMWARE }}
