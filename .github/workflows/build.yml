@@ -1,4 +1,5 @@
-name: Build OpenWrt for JDCloud RE-SS-01 (Final Fix)
+
+name: Build OpenWrt for JDCloud RE-SS-01 (最终修复版)
 
 on:
   workflow_dispatch:
@@ -16,9 +17,7 @@ jobs:
     - name: 准备环境
       uses: actions/checkout@v4
 
-    - name: 安装依赖与清理空间
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: 安装编译依赖
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
@@ -29,7 +28,6 @@ jobs:
 
     - name: 克隆源码
       run: |
-        # 直接在工作目录克隆，避免路径混乱
         git clone $REPO_URL -b $REPO_BRANCH openwrt
 
     - name: 更新 & 安装 Feeds
@@ -38,19 +36,17 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 写入配置 (针对 RE-SS-01)
+    - name: 写入配置
       run: |
         cd openwrt
         echo "CONFIG_TARGET_ipq60xx=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq60xx_generic_DEVICE_jdcloud_re-ss-01=y" >> .config
-        
-        # 集成 TikTok 核心优化插件
+        # 预集成功能
         echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
         echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
-        
         make defconfig
 
     - name: 下载软件包
@@ -61,18 +57,19 @@ jobs:
     - name: 编译固件
       run: |
         cd openwrt
-        # 多线程编译，失败则转单线程输出详细日志
         make -j$(nproc) || make -j1 V=s
 
-    - name: 自动化搜寻固件 (核心修复步)
+    - name: 提取固件 (全盘搜索逻辑)
       run: |
         mkdir -p ./artifact/
-        # 搜索所有生成的 bin 或 img 固件并移动到 artifact 目录
-        find openwrt/bin/targets/ -type f -name "*re-ss-01*" -o -name "*sysupgrade.bin*" | xargs -I {} cp {} ./artifact/
-        echo "FIRMWARE=$PWD/artifact" >> $GITHUB_ENV
+        # 查找所有生成的 bin 文件并拷贝到待上传目录
+        find openwrt/bin/targets/ -name "*re-ss-01*sysupgrade.bin" -exec cp {} ./artifact/ \;
+        find openwrt/bin/targets/ -name "*re-ss-01*factory.bin" -exec cp {} ./artifact/ \;
+        echo "固件提取完成，列表如下："
+        ls -l ./artifact/
 
     - name: 上传固件到 Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: JDCloud_RE-SS-01_Firmware
-        path: ${{ env.FIRMWARE }}
+        path: ./artifact/
